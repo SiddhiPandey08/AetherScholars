@@ -1,0 +1,31 @@
+{
+  "name": "a11y-patcher",
+  "version": "1.0.0",
+  "description": "Accessibility auto-patcher prototype",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test/test.js && node test/demo.test.js",
+    "scan": "node src/scan.js",
+    "fix": "node src/run.js",
+    "dashboard": "node src/server.js",
+    "build:demo": "node scripts/build-demo.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@babel/parser": "^8.0.6",
+    "@babel/traverse": "^8.0.6",
+    "@babel/types": "^8.0.6",
+    "@octokit/rest": "^22.0.1",
+    "diff": "^9.0.0",
+    "playwright": "^1.63.0",
+    "recast": "^0.24.0"
+  },
+  "devDependencies": {
+    "axe-core": "^4.13.0",
+    "jsdom": "^30.1.0"
+  }
+}

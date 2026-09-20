@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accessibility Auto-Patcher</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+<div class="demo-banner" role="note"><strong>Demo mode.</strong> This page uses sample data. Nothing is scanned, saved, or changed. The real tool runs on your own computer.</div>
+<header class="top">
+  <div>
+    <h1>Accessibility Auto-Patcher</h1>
+    <p class="sub">Scan a site, review AI-assisted fixes, and ship them as a pull request.</p>
+  </div>
+  <div id="status" class="chips" aria-label="Setup status"></div>
+</header>
+
+<nav aria-label="Progress">
+  <ol class="steps" id="steps">
+    <li data-s="1">Scan</li><li data-s="2">Review</li><li data-s="3">Your code</li><li data-s="4">Verify and pull request</li>
+  </ol>
+</nav>
+
+<main id="main">
+  <section aria-labelledby="h1s" class="panel">
+    <h2 id="h1s">1. Scan</h2>
+    <p class="hint">Any public page works, including government and other sites you do not own. Scanning only reads the page.</p>
+    <label for="urls">Page addresses (one per line)</label>
+    <textarea id="urls" rows="3" placeholder="Any address works in this demo"></textarea>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="all"> Audit mode: report all WCAG A/AA problems</label>
+    </div>
+    <div class="row">
+      <button id="scan" class="primary">Scan</button>
+      <button id="saved" class="ghost">Load last saved scan</button>
+      <button id="loginBtn" class="ghost">Log in to a site (optional)</button>
+    </div>
+    <div id="loginBox" class="box" hidden>
+      <label for="loginUrl">Login page address</label>
+      <input id="loginUrl" type="url" placeholder="https://your-app/login">
+      <div class="row"><button id="loginOpen" class="ghost">Open login window</button><button id="loginSave" class="ghost" disabled>I have logged in, save session</button></div>
+      <p class="hint">Use a test account. The saved session stays on this computer and is used for later scans.</p>
+    </div>
+    <pre id="log" class="log" role="log" aria-live="polite" aria-label="Scan progress"></pre>
+  </section>
+
+  <section aria-labelledby="h2s" class="panel" id="results" hidden>
+    <h2 id="h2s">2. Review findings</h2>
+    <div id="summary" class="tiles"></div>
+    <div class="row">
+      <label for="filter">Show</label>
+      <select id="filter"><option value="all">All findings</option><option value="fixable">Auto-fixable</option><option value="manual">Needs a person</option></select>
+      <button id="approveAll" class="ghost">Approve all auto-fixable</button>
+    </div>
+    <div id="list"></div>
+  </section>
+
+  <section aria-labelledby="h3s" class="panel" id="project" hidden>
+    <h2 id="h3s">3. Connect your code (optional)</h2>
+    <p class="hint">If you own the project, point to its front-end folder. Fixes are matched to the exact file and line and written only after you approve them.</p>
+    <label for="repo">Project folder</label>
+    <input id="repo" type="text" placeholder="C:/Users/you/Desktop/ProConnect/frontend">
+    <div class="row">
+      <button id="map" class="ghost">Match findings to my code</button>
+      <button id="apply" class="primary" disabled>Apply approved fixes to my files</button>
+    </div>
+    <div id="mapSummary" class="hint" role="status"></div>
+    <pre id="diff" class="diff-out" hidden></pre>
+  </section>
+
+  <section aria-labelledby="h4s" class="panel" id="ship" hidden>
+    <h2 id="h4s">4. Verify and open a pull request</h2>
+    <label for="vurls">Address of your patched app, for example the local dev server (one per line)</label>
+    <textarea id="vurls" rows="2" placeholder="http://localhost:3000/"></textarea>
+    <label for="check">Optional check command (for example: npm run lint)</label>
+    <input id="check" type="text">
+    <div class="row"><button id="verify" class="ghost">Verify</button></div>
+    <div id="verifyOut" class="tiles" role="status"></div>
+    <label for="base">Base branch</label>
+    <input id="base" type="text" value="main">
+    <div class="row">
+      <button id="prPreview" class="ghost">Preview pull request text</button>
+      <button id="prOpen" class="primary">Open pull request</button>
+    </div>
+    <pre id="prText" class="diff-out" hidden></pre>
+    <p id="prLink" role="status"></p>
+  </section>
+</main>
+<script src="demo.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

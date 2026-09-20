@@ -1,0 +1,123 @@
+// Offline end-to-end test: axe-core (via jsdom) -> mapper -> fixer. Also tests the LLM client against a local mock server.
+import fs from 'node:fs';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
+import axe from 'axe-core';
+import { fix } from '../src/run.js';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { RULES } from '../src/scan.js';
+import { compare } from '../src/verify.js';
+import { buildBody, commitAndPush } from '../src/pr.js';
+import { createServer } from '../src/server.js';
+
+fs.rmSync('.cache', { recursive: true, force: true }); // keep the mock-server check independent of cached answers
+const html = fs.readFileSync('test/fixture/rendered.html', 'utf8');
+const dom = new JSDOM(html, { runScripts: 'outside-only' });
+dom.window.eval(axe.source);
+const res = await dom.window.axe.run(dom.window.document, { runOnly: { type: 'rule', values: RULES } });
+const violations = res.violations.flatMap((v) => v.nodes.map((n) => ({
+  ruleId: v.id, wcag: v.tags.filter((x) => /^wcag\d/.test(x)), html: n.html, target: n.target,
+  src: dom.window.document.querySelector(n.target[0])?.getAttribute('src') || null, context: '',
+})));
+console.log(`axe found ${violations.length} violations:`, violations.map((v) => v.ruleId).join(', '));
+assert.equal(violations.length, 8);
+
+// 1) Rule-only mode
+delete process.env.LLM_BASE_URL;
+let out = await fix({ violations, repo: 'test/fixture' });
+console.table(out.patches.map((p) => ({ rule: p.ruleId, status: p.status, line: p.line, change: p.change })));
+assert.equal(out.patches.filter((p) => p.status === 'proposed').length, 6);
+assert.equal(out.patches.filter((p) => p.status === 'covered').length, 2);
+const d = out.diffs.join('');
+for (const s of ['alt="Hero library"', 'aria-label="Email"', 'aria-label="Trash"', 'aria-label="Profile"', 'aria-label={`Go to slide ${i + 1}`}', '(it, index)', 'aria-label={`Go to slide ${index + 1}`}']) assert.ok(d.includes(s), `missing ${s}`);
+console.log(d);
+
+// 2) AI mode against a mock OpenAI-compatible server (checks image is sent as a data URL)
+let sawImage = false;
+const srv = http.createServer((req, rsp) => {
+  let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => {
+    const body = JSON.parse(b);
+    if (JSON.stringify(body).includes('data:image')) sawImage = true;
+    rsp.setHeader('Content-Type', 'application/json');
+    rsp.end(JSON.stringify({ choices: [{ message: { content: '{"alt":"Students reading in a sunlit library","decorative":false}' } }] }));
+  });
+}).listen(0);
+process.env.LLM_BASE_URL = `http://127.0.0.1:${srv.address().port}/v1`;
+process.env.LLM_MODEL = 'mock-vl';
+const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+out = await fix({ violations: violations.map((v) => (v.ruleId === 'image-alt' ? { ...v, src: png } : v)), repo: 'test/fixture' });
+srv.close();
+assert.ok(sawImage);
+assert.ok(out.diffs.join('').includes('alt="Students reading in a sunlit library"'));
+
+// 3) Honest "not in source" for an element that matches nothing in the repo
+delete process.env.LLM_BASE_URL;
+const vendor = { ruleId: 'button-name', wcag: [], html: '<button class="vendor__x"></button>', target: [], src: null, context: '' };
+const r3 = await fix({ violations: [...violations, vendor], repo: 'test/fixture' });
+assert.equal(r3.patches.filter((p) => p.status === 'not-in-source').length, 1);
+
+// 4) Verification comparison
+assert.deepEqual(
+  compare([{ ruleId: 'a', html: '1' }, { ruleId: 'a', html: '2' }], [{ ruleId: 'a', html: '2' }, { ruleId: 'b', html: '3' }]),
+  { before: 2, resolved: 1, remaining: 1, introduced: 1 });
+
+// 5) Branch + commit + push to a local bare remote, and PR body
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'a11y-'));
+const remote = path.join(tmp, 'remote.git'), work = path.join(tmp, 'work');
+const g = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8' });
+execFileSync('git', ['init', '--bare', '-b', 'main', remote]);
+fs.cpSync('test/fixture', work, { recursive: true });
+g(work, 'init', '-b', 'main'); g(work, 'config', 'user.email', 't@t'); g(work, 'config', 'user.name', 't');
+g(work, 'add', '.'); g(work, 'commit', '-m', 'init'); g(work, 'remote', 'add', 'origin', remote); g(work, 'push', '-u', 'origin', 'main');
+const r5 = await fix({ violations, repo: work, write: true });
+commitAndPush({ repoDir: work, report: r5.patches, branch: 'a11y/test' });
+assert.ok(g(remote, 'branch').includes('a11y/test'));
+assert.ok(buildBody(r5.patches).includes('| Location |'));
+fs.rmSync(tmp, { recursive: true, force: true });
+
+// 6) Dashboard API end to end (scan itself needs a real browser, so it is only checked for a clean failure)
+const t2 = fs.mkdtempSync(path.join(os.tmpdir(), 'a11y-dash-'));
+process.env.VIOLATIONS_FILE = path.join(t2, 'v.json');
+fs.writeFileSync(process.env.VIOLATIONS_FILE, JSON.stringify(violations));
+const copy = path.join(t2, 'repo');
+fs.cpSync('test/fixture', copy, { recursive: true });
+const app = createServer().listen(0, '127.0.0.1');
+await new Promise((r) => app.once('listening', r));
+const base = `http://127.0.0.1:${app.address().port}`;
+const get = async (u) => (await fetch(base + u)).json();
+const post = async (u, b) => (await fetch(base + u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })).json();
+assert.ok((await (await fetch(base + '/')).text()).includes('Accessibility Auto-Patcher'));
+assert.equal((await fetch(base + '/%2e%2e/package.json')).status, 404);
+assert.equal((await get('/api/config')).hasSaved, true);
+const saved = await get('/api/saved');
+assert.equal(saved.items.length, 8);
+const alt = saved.items.find((i) => i.ruleId === 'image-alt');
+assert.ok(alt.fix.supported && alt.fix.after.includes('alt="'));
+const mapped = await post('/api/map', { repo: 'test/fixture' });
+assert.equal(mapped.patches.filter((p) => p.status === 'proposed').length, 6);
+const ids = saved.items.filter((i) => i.fix.supported).map((i) => i.id);
+const applied = await post('/api/apply', { repo: copy, ids });
+assert.ok(applied.diffs.join('').includes('aria-label'));
+assert.ok(fs.readFileSync(path.join(copy, 'src/pages/index.jsx'), 'utf8').includes('aria-label="Email"'));
+assert.ok((await post('/api/pr', { repo: copy, dryRun: true })).body.includes('| Location |'));
+const sse = await (await fetch(base + '/api/scan?urls=' + encodeURIComponent('http://127.0.0.1:1/'))).text();
+assert.ok(sse.includes('event: fail'));
+// 7) Dashboard page smoke test in a simulated browser
+const dash = await JSDOM.fromURL(base + '/', { runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true,
+  beforeParse(w) { w.fetch = (u, o) => fetch(new URL(u, base), o); } });
+const doc = dash.window.document;
+const until = async (f) => { for (let i = 0; i < 100 && !f(); i++) await new Promise((r) => setTimeout(r, 50)); assert.ok(f(), 'timed out'); };
+await until(() => doc.querySelector('#status').innerHTML.includes('chip'));
+doc.querySelector('#saved').click();
+await until(() => doc.querySelectorAll('#list article').length === 8);
+doc.querySelector('button[data-a="approved"]:not([disabled])').click();
+assert.ok(doc.querySelector('button[aria-pressed="true"]'));
+assert.ok(doc.querySelector('#summary').textContent.includes('Approved'));
+dash.window.close();
+app.close();
+fs.rmSync(t2, { recursive: true, force: true });
+fs.rmSync('out', { recursive: true, force: true });
+console.log('All tests passed');
