@@ -12,6 +12,8 @@ import { RULES } from '../src/scan.js';
 import { compare } from '../src/verify.js';
 import { buildBody, commitAndPush } from '../src/pr.js';
 import { createServer } from '../src/server.js';
+import { buildFindings } from '../src/seo.js';
+import { suggestHtml } from '../src/htmlFix.js';
 
 fs.rmSync('.cache', { recursive: true, force: true }); // keep the mock-server check independent of cached answers
 const html = fs.readFileSync('test/fixture/rendered.html', 'utf8');
@@ -89,7 +91,7 @@ await new Promise((r) => app.once('listening', r));
 const base = `http://127.0.0.1:${app.address().port}`;
 const get = async (u) => (await fetch(base + u)).json();
 const post = async (u, b) => (await fetch(base + u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })).json();
-assert.ok((await (await fetch(base + '/')).text()).includes('Accessibility Auto-Patcher'));
+assert.ok((await (await fetch(base + '/')).text()).includes('Auto-Patcher'));
 assert.equal((await fetch(base + '/%2e%2e/package.json')).status, 404);
 assert.equal((await get('/api/config')).hasSaved, true);
 const saved = await get('/api/saved');
@@ -120,4 +122,22 @@ dash.window.close();
 app.close();
 fs.rmSync(t2, { recursive: true, force: true });
 fs.rmSync('out', { recursive: true, force: true });
+
+// 8) SEO: findings from page data, suggestions, and a Next.js <Head> patch
+const page = { title: '', titleEl: false, desc: '', viewport: '', canonical: '', robots: '', h1s: ['About the library'], og: {}, jsonld: 0, lang: 'en',
+  para: 'Borrow books, join reading circles, and use free study rooms across the city.', img: 'https://x.test/hero.jpg', text: 'About the library Borrow books', generic: [] };
+const seo = buildFindings({ url: 'https://x.test/about', d: page, xrobots: '', site: { robots: false, sitemap: false } });
+const seoIds = seo.map((x) => x.ruleId);
+for (const id of ['seo-title-missing', 'seo-description-missing', 'seo-viewport-missing', 'seo-canonical-missing', 'seo-open-graph-missing', 'seo-structured-data-missing', 'seo-robots-txt-missing', 'seo-sitemap-missing'])
+  assert.ok(seoIds.includes(id), `missing finding ${id}`);
+assert.ok(!seoIds.includes('seo-h1-missing'));
+const tSug = await suggestHtml(seo.find((x) => x.ruleId === 'seo-title-missing'));
+assert.ok(tSug.supported && tSug.after.startsWith('<title>About the library | x.test'));
+assert.equal((await suggestHtml(seo.find((x) => x.ruleId === 'seo-sitemap-missing'))).supported, false);
+const seoRun = await fix({ violations: seo, repo: 'test/fixture' });
+const seoDiff = seoRun.diffs.join('');
+assert.equal(seoRun.patches.filter((p) => p.status === 'proposed').length, 5);   // title, description, viewport, canonical, og (robots.txt is a new file, not a code patch)
+assert.ok(seoDiff.includes("import Head from 'next/head'") && seoDiff.includes('<title>') && seoDiff.includes('name="description"') && seoDiff.includes('rel="canonical"'));
+assert.equal((seoDiff.match(/<Head>/g) || []).length, 1);
+console.log(seoDiff);
 console.log('All tests passed');

@@ -21,6 +21,10 @@ npm run dashboard        # then open http://localhost:4173
 
 The dashboard only listens on your own computer (127.0.0.1). "Load last saved scan" works offline, which makes a good demo backup.
 
+## SEO checks
+Tick **SEO** in the dashboard, or use `node src/scan.js <url> --seo` (both) or `--seo-only`. Checks: page title, meta description (missing or wrong length), h1, mobile viewport, canonical link, social sharing tags, noindex, HTTPS, vague link text, structured data, robots.txt, sitemap.xml.
+Fixes for missing title, description, viewport, canonical and sharing tags can be written into a Next.js **pages-router** page inside `<Head>` from `next/head` (route `/about` -> `src/pages/about.jsx`). Other checks show advice for a person. Suggestions use the AI model when configured, otherwise simple rules.
+
 ## Share a demo with your team (GitHub Pages)
 GitHub Pages only serves static files, so the real tool (which needs Node, a browser and your files) cannot run there. Instead `docs/` is a clickable **demo mode** with sample data.
 1. `npm run build:demo` (rebuilds `docs/` after any UI change), commit and push.
@@ -51,4 +55,4 @@ Statuses in the report: `proposed`, `covered` (same element as an earlier fix), 
 5. `run.js`: writes `out/report.json` and `out/patches.diff`.
 
 ## Not built yet
-Colour contrast fixes (needs CSS resolution), clickable-div fixes, TypeScript (.tsx) projects.
+Colour contrast fixes (needs CSS resolution), clickable-div fixes, TypeScript (.tsx) projects, SEO fixes for the Next.js app router.

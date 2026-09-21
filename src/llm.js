@@ -62,3 +62,12 @@ export async function suggestLabel({ html, context = '', kind }) {
   );
   return parseJson(out);
 }
+
+// Text step: SEO title and description for a page. Returns { title, description } or null.
+export async function suggestSeoText({ url, h1 = '', text = '' }) {
+  const out = await chat(
+    `Write SEO metadata for a web page. URL: ${url}. Main heading: "${h1}". Page text: "${text.slice(0, 600)}". ` +
+      'Reply ONLY with JSON: {"title": "<max 60 characters>", "description": "<max 155 characters, one plain sentence>"}'
+  );
+  return parseJson(out);
+}

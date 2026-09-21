@@ -6,14 +6,18 @@ import { pathToFileURL } from 'node:url';
 
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 const proposed = (report) => report.filter((p) => p.status === 'proposed');
+const label = (report) => {
+  const c = new Set(proposed(report).map((p) => p.category || 'accessibility'));
+  return c.size > 1 ? 'a11y + SEO' : c.has('seo') ? 'SEO' : 'a11y';
+};
 
 export function buildBody(report) {
   const p = proposed(report);
   const rows = p.map((x) =>
-    `| \`${x.file}:${x.line}\` | ${x.ruleId} (${(x.wcag || []).join(', ')}) | ${x.change} | ${x.source === 'ai' ? 'AI' : 'Rule'}${x.needsReview ? ' (check wording)' : ''} |`);
+    `| \`${x.file}:${x.line}\` | ${x.ruleId}${(x.wcag || []).length ? ` (${x.wcag.join(', ')})` : ''} | ${x.change} | ${x.source === 'ai' ? 'AI' : 'Rule'}${x.needsReview ? ' (check wording)' : ''} |`);
   return [
-    `## Accessibility fixes (${p.length})`, '',
-    'Proposed by the Accessibility Auto-Patcher. Please review every change before merging.', '',
+    `## ${label(report) === 'a11y' ? 'Accessibility' : label(report) === 'SEO' ? 'SEO' : 'Accessibility and SEO'} fixes (${p.length})`, '',
+    'Proposed by the Auto-Patcher. Please review every change before merging.', '',
     '| Location | Issue | Change | Source |', '| --- | --- | --- | --- |', ...rows, '',
     'Rule = deterministic fix. AI = suggested by a vision/language model; please double-check the wording.',
   ].join('\n');
@@ -25,7 +29,7 @@ export function commitAndPush({ repoDir, report, branch, push = true }) {
   if (!files.length) throw new Error('No proposed fixes in the report');
   git(dir, 'checkout', '-b', branch);
   git(dir, 'add', '--', ...files);
-  git(dir, 'commit', '-m', `a11y: fix ${proposed(report).length} accessibility issues`);
+  git(dir, 'commit', '-m', `${label(report)}: fix ${proposed(report).length} issue${proposed(report).length === 1 ? '' : 's'}`);
   if (push) git(dir, 'push', '-u', 'origin', branch);
   return dir;
 }
@@ -38,7 +42,7 @@ function parseRemote(url) {
 
 export async function openPr({ repoDir, report, base = 'main', dryRun = false }) {
   const n = proposed(report).length;
-  const title = `a11y: fix ${n} accessibility issue${n === 1 ? '' : 's'}`;
+  const title = `${label(report)}: fix ${n} issue${n === 1 ? '' : 's'}`;
   const body = buildBody(report);
   if (dryRun) { console.log(`${title}\n\n${body}`); return { title, body }; }
   if (!process.env.GITHUB_TOKEN) throw new Error('Set GITHUB_TOKEN (fine-grained token: Contents and Pull requests write access).');

@@ -117,11 +117,22 @@ export class Project {
     return { best, confidence, candidates: cands.slice(0, 3).map((c) => ({ file: path.relative(this.dir, c.f.file), line: c.line })) };
   }
 
+  // Next.js pages router: /about -> src/pages/about.jsx or src/pages/about/index.jsx (also without src/).
+  pageFile(pathname) {
+    const p = decodeURIComponent(pathname).replace(/^\/+|\/+$/g, '');
+    const bases = p ? [p, `${p}/index`] : ['index'];
+    const want = new Set();
+    for (const root of ['src/pages', 'pages']) for (const b of bases) for (const ext of ['.jsx', '.js']) want.add(path.resolve(this.dir, root, b + ext));
+    return this.files.find((f) => want.has(path.resolve(f.file)));
+  }
+
   changed() {
     // Keep each file's original line endings so Windows/Linux differences do not rewrite every line.
-    return this.files.filter((f) => f.dirty).map((f) => ({
-      ...f,
-      after: recast.print(f.ast, { lineTerminator: f.code.includes('\r\n') ? '\r\n' : '\n' }).code,
-    }));
+    return this.files.filter((f) => f.dirty).map((f) => {
+      let after = recast.print(f.ast, { lineTerminator: f.code.includes('\r\n') ? '\r\n' : '\n' }).code;
+      // recast prints new import strings with double quotes; match the file's own style.
+      if (/from '/.test(f.code) && !/from "/.test(f.code)) after = after.replace(/(import \w+ from )"next\/head";/, "$1'next/head';");
+      return { ...f, after };
+    });
   }
 }

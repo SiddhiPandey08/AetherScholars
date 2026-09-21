@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { createTwoFilesPatch } from 'diff';
 import { Project } from './mapSource.js';
 import { applyFix } from './fixes.js';
+import { applySeoFix } from './seoSource.js';
 
 try { process.loadEnvFile('.env'); } catch { /* no .env: rule-only mode */ }
 
@@ -12,7 +13,12 @@ export async function fix({ violations, repo, write = false }) {
   const project = new Project(repo);
   const patches = [], seen = new Set();
   for (const v of violations) {
-    const base = { ruleId: v.ruleId, wcag: v.wcag, html: v.html };
+    const base = { ruleId: v.ruleId, category: v.category || 'accessibility', wcag: v.wcag, html: v.html };
+    if (v.category === 'seo') {
+      const s = await applySeoFix(project, v);
+      patches.push(s.skipped ? { ...base, status: 'skipped', reason: s.reason } : { ...base, status: 'proposed', ...s });
+      continue;
+    }
     const hit = project.find(v);
     if (!hit.best || hit.confidence === 'none') {
       patches.push({ ...base, status: 'not-in-source', reason: 'No element in your code matches (likely a third-party component or generated at runtime)' });

@@ -15,7 +15,8 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 const authFile = () => process.env.AUTH_FILE || 'auth.json';
 const savedFile = () => process.env.VIOLATIONS_FILE || 'violations.json';
 
-let current = { violations: [], allRules: false };
+let current = { violations: [], opts: { allRules: false, a11y: true, seo: false } };
+const optsFrom = (vs, allRules) => ({ allRules, a11y: vs.some((v) => v.category !== 'seo') || !vs.length, seo: vs.some((v) => v.category === 'seo') });
 let loginSession = null;
 
 async function toItems(violations, send) {
@@ -36,19 +37,19 @@ async function scanSse(u, res) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
   const send = (evt, data) => res.write(`event: ${evt}\ndata: ${JSON.stringify(data)}\n\n`);
   const urls = (u.searchParams.get('urls') || '').split(/[\s,]+/).filter(Boolean);
-  const all = u.searchParams.get('all') === '1';
+  const opts = { allRules: u.searchParams.get('all') === '1', a11y: u.searchParams.get('a11y') !== '0', seo: u.searchParams.get('seo') === '1' };
   try {
     const { scan } = await import('./scan.js');
     const found = [], seen = new Set();
     for (const [i, url] of urls.entries()) {
       send('progress', { message: `Scanning ${url} (${i + 1} of ${urls.length})...` });
-      const list = await scan(url, { allRules: all });
+      const list = await scan(url, opts);
       send('progress', { message: `${list.length} issue(s) found on ${url}` });
       for (const v of list) { const k = v.ruleId + v.html; if (!seen.has(k)) { seen.add(k); found.push(v); } }
     }
-    current = { violations: found, allRules: all };
+    current = { violations: found, opts };
     fs.writeFileSync(savedFile(), JSON.stringify(found, null, 2));
-    send('done', { items: await toItems(found, send) });
+    send('done', { items: await toItems(found, send), categories: [opts.a11y && 'accessibility', opts.seo && 'seo'].filter(Boolean) });
   } catch (e) {
     send('fail', { message: e.message });
   } finally {
@@ -62,8 +63,9 @@ const api = {
     hasAuth: fs.existsSync(authFile()), hasSaved: fs.existsSync(savedFile()), hasToken: !!process.env.GITHUB_TOKEN,
   }),
   'GET /api/saved': async () => {
-    current = { violations: JSON.parse(fs.readFileSync(savedFile(), 'utf8')), allRules: true };
-    return { items: await toItems(current.violations) };
+    const vs = JSON.parse(fs.readFileSync(savedFile(), 'utf8'));
+    current = { violations: vs, opts: optsFrom(vs, true) };
+    return { items: await toItems(vs), categories: [current.opts.a11y && 'accessibility', current.opts.seo && 'seo'].filter(Boolean) };
   },
   'POST /api/map': async ({ repo }) => {
     const r = await fix({ violations: current.violations, repo, write: false });
@@ -78,7 +80,7 @@ const api = {
   'POST /api/verify': async ({ urls, check, repo }) => {
     const { scan } = await import('./scan.js');
     const after = [];
-    for (const u of urls) after.push(...(await scan(u, { allRules: current.allRules })));
+    for (const u of urls) after.push(...(await scan(u, current.opts)));
     const result = compare(current.violations, after);
     if (check) { try { execSync(check, { cwd: repo || '.', stdio: 'pipe' }); result.check = 'passed'; } catch { result.check = 'FAILED'; } }
     return result;
