@@ -68,11 +68,11 @@ const api = {
     return { items: await toItems(vs), categories: [current.opts.a11y && 'accessibility', current.opts.seo && 'seo'].filter(Boolean) };
   },
   'POST /api/map': async ({ repo }) => {
-    const r = await fix({ violations: current.violations, repo, write: false });
+    const r = await fix({ violations: current.violations, repo, write: false, reviewed: false });
     return { patches: r.patches, diffs: r.diffs };
   },
   'POST /api/apply': async ({ repo, ids }) => {
-    const r = await fix({ violations: ids.map((i) => current.violations[i]), repo, write: true });
+    const r = await fix({ violations: ids.map((i) => current.violations[i]), repo, write: true, reviewed: true });
     fs.mkdirSync('out', { recursive: true });
     fs.writeFileSync('out/report.json', JSON.stringify(r.patches, null, 2));
     return { patches: r.patches, diffs: r.diffs };

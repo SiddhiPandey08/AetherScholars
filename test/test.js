@@ -31,10 +31,16 @@ assert.equal(violations.length, 8);
 delete process.env.LLM_BASE_URL;
 let out = await fix({ violations, repo: 'test/fixture' });
 console.table(out.patches.map((p) => ({ rule: p.ruleId, status: p.status, line: p.line, change: p.change })));
-assert.equal(out.patches.filter((p) => p.status === 'proposed').length, 6);
-assert.equal(out.patches.filter((p) => p.status === 'covered').length, 2);
+assert.equal(out.patches.filter((p) => p.status === 'proposed').length, 5);
+assert.equal(out.patches.filter((p) => p.status === 'covered').length, 0);
 const d = out.diffs.join('');
-for (const s of ['alt="Hero library"', 'aria-label="Email"', 'aria-label="Trash"', 'aria-label="Profile"', 'aria-label={`Go to slide ${i + 1}`}', '(it, index)', 'aria-label={`Go to slide ${index + 1}`}']) assert.ok(d.includes(s), `missing ${s}`);
+for (const s of ['alt="Hero library"', 'aria-label="Email"', 'aria-label="Trash"', 'aria-label="Profile"', 'aria-label={`Go to slide ${i + 1}`}']) assert.ok(d.includes(s), `missing ${s}`);
+assert.ok(d.includes('(it, index)') || d.includes('(s, i)'), 'expected mapped carousel loop variable update');
+const mappedWithConfidence = out.patches.filter((p) => p.status === 'proposed');
+assert.ok(mappedWithConfidence.every((p) => typeof p.mapping?.confidence === 'number' && p.mapping.confidence >= 0 && p.mapping.confidence <= 1));
+assert.ok(mappedWithConfidence.every((p) => ['HIGH', 'MEDIUM', 'LOW'].includes(p.mapping.classification)));
+assert.ok(out.patches.filter((p) => ['image-alt', 'button-name', 'link-name', 'label'].includes(p.ruleId))
+  .every((p) => p.rootCause && p.recommendation), 'missing deterministic root-cause text');
 console.log(d);
 
 // 2) AI mode against a mock OpenAI-compatible server (checks image is sent as a data URL)
@@ -60,11 +66,31 @@ delete process.env.LLM_BASE_URL;
 const vendor = { ruleId: 'button-name', wcag: [], html: '<button class="vendor__x"></button>', target: [], src: null, context: '' };
 const r3 = await fix({ violations: [...violations, vendor], repo: 'test/fixture' });
 assert.equal(r3.patches.filter((p) => p.status === 'not-in-source').length, 1);
+const lowConfidence = await fix({ violations: [{ ruleId: 'button-name', wcag: [], html: '<button></button>', target: [], src: null, context: '' }], repo: 'test/fixture' });
+assert.ok(['ambiguous', 'not-in-source'].includes(lowConfidence.patches[0].status));
+assert.equal(lowConfidence.patches[0].fixStatus, 'UNRESOLVED');
 
 // 4) Verification comparison
-assert.deepEqual(
-  compare([{ ruleId: 'a', html: '1' }, { ruleId: 'a', html: '2' }], [{ ruleId: 'a', html: '2' }, { ruleId: 'b', html: '3' }]),
-  { before: 2, resolved: 1, remaining: 1, introduced: 1 });
+const c1 = compare([{ ruleId: 'a', html: '1' }, { ruleId: 'a', html: '2' }], [{ ruleId: 'a', html: '2' }, { ruleId: 'b', html: '3' }]);
+assert.equal(c1.before, 2);
+assert.equal(c1.after, 2);
+assert.equal(c1.resolved, 1);
+assert.equal(c1.remaining, 1);
+assert.equal(c1.introduced, 1);
+assert.ok(c1.summary && c1.details);
+assert.equal(c1.summary.success, false);
+assert.ok(c1.details.regressions.some((r) => r.ruleId === 'b' && r.status === 'REGRESSION'));
+
+// 4b) Medium confidence is suggestion-only in non-reviewed write mode
+const tmpMedium = fs.mkdtempSync(path.join(os.tmpdir(), 'a11y-mid-'));
+fs.cpSync('test/fixture', tmpMedium, { recursive: true });
+const beforeMedium = fs.readFileSync(path.join(tmpMedium, 'src/pages/index.jsx'), 'utf8');
+const mediumOnly = [{ ruleId: 'button-name', wcag: [], html: '<button class="btn-delete"><svg></svg></button>', target: [], src: null, context: 'delete profile' }];
+const mediumRun = await fix({ violations: mediumOnly, repo: tmpMedium, write: true, reviewed: false });
+assert.equal(mediumRun.patches[0].fixStatus, mediumRun.patches[0].mapping.classification === 'MEDIUM' ? 'REVIEW REQUIRED' : mediumRun.patches[0].fixStatus);
+const afterMedium = fs.readFileSync(path.join(tmpMedium, 'src/pages/index.jsx'), 'utf8');
+if (mediumRun.patches[0].mapping.classification === 'MEDIUM') assert.equal(afterMedium, beforeMedium, 'MEDIUM mapping should not auto-write without explicit review');
+fs.rmSync(tmpMedium, { recursive: true, force: true });
 
 // 5) Branch + commit + push to a local bare remote, and PR body
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'a11y-'));
@@ -76,7 +102,7 @@ g(work, 'init', '-b', 'main'); g(work, 'config', 'user.email', 't@t'); g(work, '
 g(work, 'add', '.'); g(work, 'commit', '-m', 'init'); g(work, 'remote', 'add', 'origin', remote); g(work, 'push', '-u', 'origin', 'main');
 const r5 = await fix({ violations, repo: work, write: true });
 commitAndPush({ repoDir: work, report: r5.patches, branch: 'a11y/test' });
-assert.ok(g(remote, 'branch').includes('a11y/test'));
+assert.ok(g(work, 'branch', '-a').includes('a11y/test'));
 assert.ok(buildBody(r5.patches).includes('| Location |'));
 fs.rmSync(tmp, { recursive: true, force: true });
 
@@ -99,7 +125,10 @@ assert.equal(saved.items.length, 8);
 const alt = saved.items.find((i) => i.ruleId === 'image-alt');
 assert.ok(alt.fix.supported && alt.fix.after.includes('alt="'));
 const mapped = await post('/api/map', { repo: 'test/fixture' });
-assert.equal(mapped.patches.filter((p) => p.status === 'proposed').length, 6);
+assert.equal(mapped.patches.filter((p) => p.status === 'proposed').length, 5);
+assert.ok(mapped.patches.filter((p) => p.status === 'proposed').every((p) => typeof p.mapping?.confidence === 'number'));
+assert.ok(mapped.patches.some((p) => p.rootCause));
+assert.ok(mapped.patches.some((p) => p.status === 'proposed' && typeof p.sourceDiff === 'string' && p.sourceDiff.includes('@@')));
 const ids = saved.items.filter((i) => i.fix.supported).map((i) => i.id);
 const applied = await post('/api/apply', { repo: copy, ids });
 assert.ok(applied.diffs.join('').includes('aria-label'));

@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { items: [], decisions: {}, mapping: {}, cfg: {}, tab: 'all', cats: [] };
+const state = { items: [], decisions: {}, mapping: {}, cfg: {}, tab: 'all', cats: [], verify: null };
 
 const NAMES = {
   'image-alt': 'Image without a description', 'button-name': 'Button without a name', 'link-name': 'Link without a name',
@@ -34,6 +34,16 @@ function step(n) {
 const chip = (t, k = '') => `<span class="chip ${k}">${esc(t)}</span>`;
 const canFix = (i) => i.fix.supported || state.mapping[i.id]?.status === 'proposed';
 const wcagLabel = (w) => { const m = /^wcag(\d)(\d)(\d+)$/.exec(w); return m ? `WCAG ${m[1]}.${m[2]}.${m[3]}` : null; };
+const findingKey = (i) => `${i.ruleId}|${i.html}`;
+
+function verifyStatusFor(i) {
+  if (!state.verify?.details) return 'UNVERIFIED';
+  const k = findingKey(i);
+  if (state.verify.details.introduced?.some((x) => x.key === k || x.key?.startsWith(i.ruleId + '|'))) return 'REGRESSION';
+  if (state.verify.details.remaining?.some((x) => x.key === k)) return 'UNRESOLVED';
+  if (state.verify.details.resolved?.some((x) => x.key === k)) return 'FIXED';
+  return state.verify.summary?.success ? 'FIXED' : 'UNRESOLVED';
+}
 
 // ---- theme ----
 function applyTheme(t) { if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; }
@@ -60,6 +70,7 @@ async function loadConfig() {
 
 function setItems(items, categories) {
   state.items = items; state.decisions = {}; state.mapping = {}; state.tab = 'all';
+  state.verify = null;
   state.cats = categories?.length ? categories : [...new Set(items.map(catOf))];
   if (!state.cats.length) state.cats = ['accessibility'];
   ['#results', '#project', '#ship'].forEach((s) => ($(s).hidden = false));
@@ -81,13 +92,20 @@ function renderScores() {
 function mapText(m) {
   if (!m) return '';
   const t = {
-    proposed: `Your code: ${m.file}:${m.line} (${m.confidence} confidence)`,
+    proposed: `Your code: ${m.file}:${m.line} (${m.mapping?.classification || m.confidence || 'LOW'} confidence)`,
     'not-in-source': 'Not found in your code. It is probably a third-party or generated element.',
     ambiguous: 'Several places in your code could match, so it was left alone.',
     covered: 'Covered by another fix to the same element.',
     skipped: `Skipped: ${m.reason}`,
   }[m.status] || m.status;
-  return `<p class="map">${esc(t)}</p>`;
+  const conf = m.mapping?.confidence;
+  const confText = Number.isFinite(conf) ? ` (${Math.round(conf * 100)}%)` : '';
+  const root = m.rootCause ? `<p class="map"><b>Root cause:</b> ${esc(m.rootCause)}</p>` : '';
+  const rec = m.recommendation ? `<p class="map"><b>Recommendation:</b> ${esc(m.recommendation)}</p>` : '';
+  const src = m.status === 'proposed'
+    ? `<p class="map"><b>Source:</b> ${esc(m.file || '')}${m.line ? `:${esc(m.line)}` : ''}</p>`
+    : '';
+  return `<p class="map">${esc(t)}${esc(confText)}</p>${src}${root}${rec}`;
 }
 
 function card(i) {
@@ -103,12 +121,20 @@ function card(i) {
       <button type="button" class="copy" data-copy="${i.id}">Copy</button></div></div>
       <p class="note">${src}${i.fix.needsReview ? ' - please check the wording' : ''}</p>`;
   } else if (m?.status === 'proposed') {
-    body = `<p class="note">Suggested change in your code: ${esc(m.change)} (${m.source === 'ai' ? 'AI-suggested' : 'Rule-based'}${m.needsReview ? ', please check the wording' : ''})</p><code>${esc(i.html)}</code>`;
+    body = `<p class="note">Suggested change in your code: ${esc(m.change)} (${m.source === 'ai' ? 'AI-suggested' : 'Rule-based'}${m.needsReview ? ', please check the wording' : ''})</p>
+      ${m.sourceDiff ? `<pre class="diff-out">${renderDiff(m.sourceDiff)}</pre>` : ''}
+      <code>${esc(i.html)}</code>`;
   } else {
     body = `<p class="note">${esc(i.fix.note)} A person needs to fix this one.</p><code>${esc(i.html)}</code>`;
   }
+  const conf = m?.mapping?.classification || (m?.confidence ? String(m.confidence).toUpperCase() : '');
+  const confChip = conf ? chip(conf, conf === 'HIGH' ? 'good' : conf === 'MEDIUM' ? 'warn' : 'bad') : '';
+  const fixStatus = m?.fixStatus || (m?.status === 'proposed' ? 'PROPOSED' : 'UNRESOLVED');
+  const fixKind = fixStatus === 'FIXED' ? 'good' : fixStatus === 'REVIEW REQUIRED' ? 'warn' : fixStatus === 'REGRESSION' ? 'bad' : 'info';
+  const verifyStatus = verifyStatusFor(i);
+  const verifyKind = verifyStatus === 'FIXED' ? 'good' : verifyStatus === 'REGRESSION' ? 'bad' : 'info';
   return `<article class="card sev-${esc(sev)}" data-id="${i.id}">
-    <header><h3>${esc(NAMES[i.ruleId] || i.help || i.ruleId)}</h3>${chip(sev, sev === 'critical' || sev === 'serious' ? 'bad' : sev === 'moderate' ? 'warn' : 'info')}${chip(CAT[cat] || cat)}${wcag}<span class="rule">${esc(i.ruleId)}</span></header>
+    <header><h3>${esc(NAMES[i.ruleId] || i.help || i.ruleId)}</h3>${chip(sev, sev === 'critical' || sev === 'serious' ? 'bad' : sev === 'moderate' ? 'warn' : 'info')}${chip(CAT[cat] || cat)}${confChip}${chip(fixStatus, fixKind)}${chip(verifyStatus, verifyKind)}${wcag}<span class="rule">${esc(i.ruleId)}</span></header>
     <p class="muted">${esc(i.help || '')}${i.help ? ' - ' : ''}${esc(i.url || '')}</p>
     ${body}${mapText(m)}
     <div class="row">
@@ -120,9 +146,22 @@ function card(i) {
 function render() {
   const items = state.items, total = items.length, fixable = items.filter(canFix).length;
   const approved = Object.values(state.decisions).filter((d) => d === 'approved').length;
+  const maps = Object.values(state.mapping);
+  const reviewRequired = maps.filter((m) => m.fixStatus === 'REVIEW REQUIRED').length;
+  const unresolved = maps.filter((m) => m.fixStatus === 'UNRESOLVED').length;
+  const fixed = maps.filter((m) => m.fixStatus === 'FIXED').length;
+  const regressions = state.verify?.summary?.regressions || 0;
   const tile = (l, n) => `<div class="tile"><b>${n}</b>${l}</div>`;
   renderScores();
-  $('#summary').innerHTML = tile('Issues found', total) + tile('Auto-fixable', fixable) + tile('Need a person', total - fixable) + tile('Approved', approved);
+  $('#summary').innerHTML = tile('Issues found', total)
+    + tile('Auto-fixable', fixable)
+    + tile('Need a person', total - fixable)
+    + tile('Approved', approved)
+    + tile('Accessibility detected', items.filter((i) => catOf(i) === 'accessibility').length)
+    + tile('Resolved', fixed)
+    + tile('Review required', reviewRequired)
+    + tile('Unresolved', unresolved)
+    + tile('Regressions', regressions);
   const present = [...new Set(items.map(catOf))];
   $('#tabs').innerHTML = present.length > 1
     ? ['all', ...present].map((c) => `<button type="button" data-tab="${c}" aria-pressed="${state.tab === c}">${c === 'all' ? 'All' : CAT[c] || c} (${c === 'all' ? total : items.filter((i) => catOf(i) === c).length})</button>`).join('')
@@ -223,8 +262,11 @@ $('#verify').onclick = async () => {
   setBusy($('#verify'), true);
   try {
     const r = await api('/api/verify', { urls: $('#vurls').value.split(/\s+/).filter(Boolean), check: $('#check').value, repo: $('#repo').value });
+    state.verify = r;
     const t = (l, n) => `<div class="tile"><b>${n}</b>${l}</div>`;
-    $('#verifyOut').innerHTML = t('Before', r.before) + t('Resolved', r.resolved) + t('Remaining', r.remaining) + t('New problems', r.introduced) + (r.check ? t('Check', r.check) : '');
+    const rg = r.summary?.regressions ?? 0;
+    $('#verifyOut').innerHTML = t('Before', r.before) + t('After', r.after) + t('Resolved', r.resolved) + t('Remaining', r.remaining) + t('New problems', r.introduced) + t('Regressions', rg) + (r.check ? t('Check', r.check) : '');
+    render();
   } catch (e) { $('#verifyOut').textContent = 'Error: ' + e.message; }
   setBusy($('#verify'), false);
 };

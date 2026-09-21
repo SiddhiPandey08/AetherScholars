@@ -33,17 +33,17 @@
   ];
 
   const mapping = [
-    { status: 'proposed', ruleId: 'image-alt', file: 'src/pages/index.jsx', line: 14, confidence: 'high', change: 'add alt="Officials handing over a certificate at a public event"', source: 'ai' },
-    { status: 'proposed', ruleId: 'image-alt', file: 'src/Components/Header/index.jsx', line: 9, confidence: 'high', change: 'add alt="Logo emblem"', source: 'rule', needsReview: true },
-    { status: 'proposed', ruleId: 'link-name', file: 'src/pages/index.jsx', line: 31, confidence: 'medium', change: 'add aria-label="Pension"', source: 'rule', needsReview: true },
+    { status: 'proposed', ruleId: 'image-alt', file: 'src/pages/index.jsx', line: 14, confidence: 'high', mapping: { confidence: 0.96, classification: 'HIGH' }, change: 'add alt="Officials handing over a certificate at a public event"', source: 'ai', fixStatus: 'FIXED', rootCause: 'The rendered image has no usable alt text.', recommendation: 'Add informative alt text.' },
+    { status: 'proposed', ruleId: 'image-alt', file: 'src/Components/Header/index.jsx', line: 9, confidence: 'high', mapping: { confidence: 0.9, classification: 'HIGH' }, change: 'add alt="Logo emblem"', source: 'rule', needsReview: true, fixStatus: 'REVIEW REQUIRED', rootCause: 'The rendered image has no usable alt text.', recommendation: 'Add informative alt text.' },
+    { status: 'proposed', ruleId: 'link-name', file: 'src/pages/index.jsx', line: 31, confidence: 'medium', mapping: { confidence: 0.72, classification: 'MEDIUM' }, change: 'add aria-label="Pension"', source: 'rule', needsReview: true, fixStatus: 'REVIEW REQUIRED', rootCause: 'The link has no discernible accessible name.', recommendation: 'Add readable link text or aria-label.' },
     { status: 'ambiguous', ruleId: 'link-name' },
-    { status: 'proposed', ruleId: 'button-name', file: 'src/Components/SearchBar/index.jsx', line: 22, confidence: 'high', change: 'add aria-label="Search"', source: 'ai' },
+    { status: 'proposed', ruleId: 'button-name', file: 'src/Components/SearchBar/index.jsx', line: 22, confidence: 'high', mapping: { confidence: 0.88, classification: 'HIGH' }, change: 'add aria-label="Search"', source: 'ai', fixStatus: 'FIXED', rootCause: 'The button has no discernible accessible name.', recommendation: 'Add visible text or aria-label.' },
     { status: 'not-in-source', ruleId: 'label' },
     { status: 'skipped', ruleId: 'color-contrast', reason: 'no fixer for color-contrast yet' },
     { status: 'skipped', ruleId: 'heading-order', reason: 'no fixer for heading-order yet' },
-    { status: 'proposed', ruleId: 'seo-title-missing', file: 'src/pages/index.jsx', line: 12, confidence: 'high', change: 'add <title>', source: 'ai', needsReview: true },
-    { status: 'proposed', ruleId: 'seo-description-missing', file: 'src/pages/index.jsx', line: 12, confidence: 'high', change: 'add meta description', source: 'ai', needsReview: true },
-    { status: 'proposed', ruleId: 'seo-open-graph-missing', file: 'src/pages/index.jsx', line: 12, confidence: 'high', change: 'add meta og:title, og:description, og:type', source: 'rule', needsReview: true },
+    { status: 'proposed', ruleId: 'seo-title-missing', file: 'src/pages/index.jsx', line: 12, confidence: 'high', mapping: { confidence: 0.99, classification: 'HIGH' }, change: 'add <title>', source: 'ai', needsReview: true, fixStatus: 'REVIEW REQUIRED' },
+    { status: 'proposed', ruleId: 'seo-description-missing', file: 'src/pages/index.jsx', line: 12, confidence: 'high', mapping: { confidence: 0.99, classification: 'HIGH' }, change: 'add meta description', source: 'ai', needsReview: true, fixStatus: 'REVIEW REQUIRED' },
+    { status: 'proposed', ruleId: 'seo-open-graph-missing', file: 'src/pages/index.jsx', line: 12, confidence: 'high', mapping: { confidence: 0.99, classification: 'HIGH' }, change: 'add meta og:title, og:description, og:type', source: 'rule', needsReview: true, fixStatus: 'REVIEW REQUIRED' },
     { status: 'skipped', ruleId: 'seo-h1-missing', reason: 'Add one clear main heading (h1) that says what the page is about.' },
   ];
 
@@ -86,7 +86,7 @@ Proposed by the Accessibility Auto-Patcher. Please review every change before me
     '/api/saved': () => ({ items, categories: ['accessibility', 'seo'] }),
     '/api/map': () => ({ patches: mapping, diffs: [] }),
     '/api/apply': () => ({ patches: mapping.filter((p) => p.status === 'proposed'), diffs: [DIFF] }),
-    '/api/verify': () => ({ before: 12, resolved: 7, remaining: 5, introduced: 0, check: 'passed' }),
+    '/api/verify': () => ({ before: 12, after: 5, resolved: 7, remaining: 5, introduced: 0, summary: { before: 12, after: 5, resolved: 7, introduced: 0, remaining: 5, regressions: 0, success: true }, details: { before: { total: 12, byRule: {} }, after: { total: 5, byRule: {} }, regressions: [], remaining: [], introduced: [], resolved: [] }, check: 'passed' }),
     '/api/pr': (b) => (b.dryRun ? { title: 'a11y + SEO: fix 7 issues', body: PR_BODY } : { url: '#demo-pull-request' }),
     '/api/login/start': () => ({ ok: true }),
     '/api/login/finish': () => ({ ok: true }),
