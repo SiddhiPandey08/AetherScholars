@@ -65,7 +65,14 @@ export function classHints(open) {
 
 const base = (x) => x.split('?')[0].split('/').pop();
 
-function score(sn, props, jsxText, hints) {
+const norm = (n, lo, hi) => {
+  if (hi <= lo) return 0;
+  return Math.max(0, Math.min(1, (n - lo) / (hi - lo)));
+};
+
+const classify = (n) => (n >= 0.85 ? 'HIGH' : n >= 0.65 ? 'MEDIUM' : 'LOW');
+
+function score(sn, props, jsxText, hints, context = '') {
   let s = 0;
   for (const k of ['id', 'name', 'type', 'placeholder', 'href', 'role', 'title']) {
     if (sn.attrs[k] !== undefined && props[k] !== undefined) s += props[k] === sn.attrs[k] ? 3 : -3;
@@ -77,6 +84,12 @@ function score(sn, props, jsxText, hints) {
   for (const c of (sn.attrs.class || '').split(/\s+/).filter(Boolean)) if (hints.has(localClass(c))) s += 3;
   if (sn.attrs.src && typeof props.src === 'string' && base(props.src) === base(sn.attrs.src)) s += 3;
   if (sn.text && jsxText && sn.text === jsxText) s += 2;
+  const sx = sn.text.toLowerCase();
+  const jx = jsxText.toLowerCase();
+  if (sx && jx && (jx.includes(sx) || sx.includes(jx))) s += 2;
+  const cx = (context || '').toLowerCase().trim();
+  if (cx && (jx.includes(cx) || cx.includes(jx))) s += 1;
+  if (sn.tag === 'img' && props.alt === '') s += 1; // explicit decorative image alignment
   return s;
 }
 
@@ -106,15 +119,40 @@ export class Project {
         JSXOpeningElement: (p) => {
           if (!names.includes(nameOf(p.node.name))) return;
           const text = (p.parent.children || []).filter((c) => c.type === 'JSXText').map((c) => c.value.trim()).join(' ').trim();
-          cands.push({ f, node: p.node, parent: p.parent, path: p, s: score(sn, staticProps(p.node), text, classHints(p.node)), line: p.node.loc?.start.line });
+          cands.push({
+            f,
+            node: p.node,
+            parent: p.parent,
+            path: p,
+            s: score(sn, staticProps(p.node), text, classHints(p.node), violation.context),
+            line: p.node.loc?.start.line,
+          });
         },
       });
     }
     cands.sort((a, b) => b.s - a.s);
     const [best, second] = cands;
     let confidence = 'none';
-    if (best) confidence = best.s <= 0 ? 'none' : best.s >= 3 && (!second || best.s > second.s) ? 'high' : cands.length === 1 ? 'medium' : 'low';
-    return { best, confidence, candidates: cands.slice(0, 3).map((c) => ({ file: path.relative(this.dir, c.f.file), line: c.line })) };
+    let confidenceScore = 0;
+    let confidenceClass = 'LOW';
+    if (best) {
+      const spread = second ? best.s - second.s : 3;
+      confidenceScore = norm(best.s + Math.max(0, Math.min(4, spread)), 0, 10);
+      confidenceClass = classify(confidenceScore);
+      confidence = confidenceClass.toLowerCase();
+      if (best.s <= 0 || confidenceScore < 0.45) confidence = 'none';
+    }
+    return {
+      best,
+      confidence,
+      confidenceScore,
+      confidenceClass,
+      candidates: cands.slice(0, 3).map((c) => ({
+        file: path.relative(this.dir, c.f.file),
+        line: c.line,
+        score: c.s,
+      })),
+    };
   }
 
   // Next.js pages router: /about -> src/pages/about.jsx or src/pages/about/index.jsx (also without src/).

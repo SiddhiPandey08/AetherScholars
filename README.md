@@ -45,14 +45,16 @@ node src/pr.js --repo "<path>/frontend" --base main        # needs GITHUB_TOKEN;
 ```
 Keep `auth.json` and your token private (never commit them). Verify against a local dev server (`npm run dev`) so the patched code is what gets scanned.
 
-Statuses in the report: `proposed`, `covered` (same element as an earlier fix), `ambiguous` (several equally likely matches), `not-in-source` (nothing in your code matches; probably a third-party or runtime-generated element), `skipped`.
+Statuses in the report: `proposed`, `covered` (same element as an earlier fix), `ambiguous` (several equally likely matches), `not-in-source` (nothing in your code matches; probably a third-party or runtime-generated element), `skipped`.  
+Each mapped finding now includes `mapping.confidence` (0-1), `mapping.classification` (`HIGH`/`MEDIUM`/`LOW`), a deterministic root-cause explanation (for supported accessibility rules), and a safe fix status (`FIXED`/`REVIEW REQUIRED`/`UNRESOLVED`).
 
 ## Pipeline
 1. `scan.js`: Playwright + axe-core (rules: image-alt, button-name, link-name, label). Read-only.
 2. `mapSource.js`: finds the JSX element by tag, id/name/type, class, src, text. Confidence high / medium / low; ambiguous matches are reported, never auto-patched.
 3. `fixes.js`: rules first (icon name, href, title, field name), AI only for wording. Every fix is labelled `rule` or `ai`; `needsReview` marks weaker guesses.
 4. `llm.js`: any OpenAI-compatible endpoint (Qwen-VL). Images are sent as data URLs. Responses are cached in `.cache/` so a slow server cannot break a demo.
-5. `run.js`: writes `out/report.json` and `out/patches.diff`.
+5. `run.js`: writes `out/report.json` and `out/patches.diff`. `--write` is still explicit; low-confidence mappings are never auto-written, and medium-confidence mappings require explicit review flow.
+6. `verify.js`: compares before/after with regression detection and writes structured verification data (`before`, `after`, `resolved`, `introduced`, `remaining`, rule-level regressions).
 
 ## Not built yet
 Colour contrast fixes (needs CSS resolution), clickable-div fixes, TypeScript (.tsx) projects, SEO fixes for the Next.js app router.

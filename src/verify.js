@@ -4,15 +4,47 @@ import { execSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const key = (v) => `${v.ruleId}|${v.html}`;
+const byRule = (list) => {
+  const map = {};
+  for (const v of list) map[v.ruleId] = (map[v.ruleId] || 0) + 1;
+  return map;
+};
 
 // Fixed problems disappear from the new scan; untouched ones stay; anything new is a regression.
 export function compare(before, after) {
   const b = new Set(before.map(key)), a = new Set(after.map(key));
+  const beforeRules = byRule(before);
+  const afterRules = byRule(after);
+  const allRules = [...new Set([...Object.keys(beforeRules), ...Object.keys(afterRules)])];
+  const remaining = [...b].filter((k) => a.has(k)).length;
+  const introduced = [...a].filter((k) => !b.has(k)).length;
+  const regressions = allRules
+    .filter((r) => (beforeRules[r] || 0) === 0 && (afterRules[r] || 0) > 0)
+    .map((r) => ({ ruleId: r, status: 'REGRESSION', before: 0, after: afterRules[r] }));
+  const resolved = [...b].filter((k) => !a.has(k)).length;
   return {
     before: b.size,
-    resolved: [...b].filter((k) => !a.has(k)).length,
-    remaining: [...b].filter((k) => a.has(k)).length,
-    introduced: [...a].filter((k) => !b.has(k)).length,
+    after: a.size,
+    resolved,
+    remaining,
+    introduced,
+    summary: {
+      before: b.size,
+      after: a.size,
+      resolved,
+      introduced,
+      remaining,
+      regressions: regressions.length,
+      success: introduced === 0 && regressions.length === 0,
+    },
+    details: {
+      before: { total: b.size, byRule: beforeRules },
+      after: { total: a.size, byRule: afterRules },
+      regressions,
+      remaining: [...a].filter((k) => b.has(k)).map((k) => ({ key: k, status: 'UNRESOLVED' })),
+      introduced: [...a].filter((k) => !b.has(k)).map((k) => ({ key: k, status: 'REGRESSION' })),
+      resolved: [...b].filter((k) => !a.has(k)).map((k) => ({ key: k, status: 'FIXED' })),
+    },
   };
 }
 
@@ -28,8 +60,23 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (opt.check) {
     try { execSync(opt.check, { cwd: opt.repo || '.', stdio: 'pipe' }); result.check = 'passed'; } catch { result.check = 'FAILED'; }
   }
+  if (result.summary) {
+    result.summary.check = result.check || null;
+    result.summary.success = result.summary.success && result.check !== 'FAILED';
+  }
   fs.mkdirSync('out', { recursive: true });
   fs.writeFileSync('out/verify.json', JSON.stringify(result, null, 2));
-  console.table([result]);
-  if (result.introduced || result.check === 'FAILED') console.log('Do not open a pull request yet: something new appeared or the check failed.');
+  console.table([{
+    before: result.before,
+    after: result.after,
+    resolved: result.resolved,
+    remaining: result.remaining,
+    introduced: result.introduced,
+    regressions: result.summary?.regressions || 0,
+    check: result.check || '',
+    success: result.summary?.success ? 'yes' : 'no',
+  }]);
+  if (result.introduced || result.check === 'FAILED' || result.summary?.regressions) {
+    console.log('Do not open a pull request yet: regressions or failed checks were detected.');
+  }
 }
