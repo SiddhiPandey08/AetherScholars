@@ -664,44 +664,7 @@ main {
   backdrop-filter: blur(12px);
 }
 
-/* Floating Quick-Back Button (Always visible on scroll) */
-.floating-back-wrap {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 99;
-  animation: fadeIn 0.2s ease;
-}
 
-.btn-floating-back {
-  background: var(--surface);
-  color: var(--text) !important;
-  border: 1.5px solid var(--border);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 9px 18px;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.2s ease;
-}
-
-.btn-floating-back:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  border-color: var(--border-focus);
-  background: var(--surface-hover);
-}
-
-[data-theme="dark"] .btn-floating-back {
-  background: #1c202c;
-  border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-}
 
 .report-bottom-bar {
   display: flex;

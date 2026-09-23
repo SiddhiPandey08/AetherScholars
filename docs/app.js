@@ -67,9 +67,6 @@ function showSection(sec) {
   if (secHistory) secHistory.hidden = sec !== 'history';
   if (secCompare) secCompare.hidden = sec !== 'compare';
 
-  const floatingBack = $('#floatingBackWrap');
-  if (floatingBack && sec !== 'analyze') floatingBack.hidden = true;
-
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -85,12 +82,10 @@ function showAnalyzeScreen(screen) {
   const viewInputs = $('#viewInputs');
   const viewLoader = $('#viewLoader');
   const viewReport = $('#viewReport');
-  const floatingBack = $('#floatingBackWrap');
 
   if (viewInputs) viewInputs.hidden = screen !== 'inputs';
   if (viewLoader) viewLoader.hidden = screen !== 'loader';
   if (viewReport) viewReport.hidden = screen !== 'report';
-  if (floatingBack) floatingBack.hidden = screen !== 'report';
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -219,14 +214,6 @@ if ($('#btnReAnalyze')) {
 
 if ($('#btnBackToInputs')) {
   $('#btnBackToInputs').onclick = returnToInputs;
-}
-
-if ($('#btnBackToInputsBottom')) {
-  $('#btnBackToInputsBottom').onclick = returnToInputs;
-}
-
-if ($('#btnFloatingBack')) {
-  $('#btnFloatingBack').onclick = returnToInputs;
 }
 
 if ($('#btnExportPdf')) {
